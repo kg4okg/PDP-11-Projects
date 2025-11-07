@@ -1,0 +1,470 @@
+; --------------------------------------------------
+; A simple boot menu meant for a PDP-11/23
+; The goal is to be able to boot DU, DD
+; and MU devices easily.
+;
+; 2025 - Peter Ekstrom
+; --------------------------------------------------
+	.enabl	AMA
+	.asect
+;
+conrxs  = 177560 		; Term in stat
+conrxb  = conrxs+2		; Term in buff
+contxs  = conrxb+2		; Term out stat
+contxb  = contxs+2		; Term out buff
+; --------------------------------------------------
+; RAM locations variables
+; --------------------------------------------------
+seldev	=1000			; Selected device
+selunt	=1002			; Selected unit #
+crc16	=1004			; Checksum storage
+rpkt	=1006
+cpkt	=1072
+comm	=2406
+;
+; --------------------------------------------------
+; Main Program
+; --------------------------------------------------
+;
+	.=70000			; Load address
+;
+; Main entry point
+;
+init:	mov	#.,sp		; Setup stack
+	tst	-(sp)
+        reset                   ; Reset the bus
+        mov     #000340,177776  ; Raise interrupt pri
+;
+	mov	#0,r4
+clrtrp:	clr	(r4)+
+	cmp	r4,#100
+	bne	clrtrp
+;
+	jsr	pc,cpytrp	; Initialize traps
+start:	mov	#clrscn,r1
+	jsr	pc,prtstr
+;
+	mov	#31.,r1		; Print 31 spaces
+	jsr	pc,prtspc
+	mov	#banner,r1	; Point to banner
+	jsr	pc,prtstr
+	mov	#26.,r1		; Print 26 spaces
+	jsr	pc,prtspc
+	mov	#verstr,r1	; Point to version
+	jsr	pc,prtstr
+;
+	mov	#33.,r1		; Print 33 spaces
+	jsr	pc,prtspc
+	mov	#bywho,r1	; Point to author
+	jsr	pc,prtstr
+;
+	mov	#btmnu,r1	; Point to menu
+	jsr	pc,prtstr
+	mov	#ctzmsg,r1	; Point to ctrlz msg
+	jsr	pc,prtstr
+;
+; Get boot device selection
+;
+devagn:	mov	#btsdev,r1	; Prompt for device
+	jsr	pc,prtstr
+	jsr	pc,getchr	; Get device choice
+	jsr	pc,prtchr	; Echo selection
+	cmpb	#32,r0		; Check for CTRL-Z
+	beq	start
+	cmpb	#61,r0		; Device 1 (DU)?
+	beq	getunt
+	cmpb	#62,r0		; Device 2 (DD)?
+	beq	getunt
+	cmpb	#63,r0		; Device 3 (MU)?
+	beq	getunt
+;
+devunk:	jsr	pc,unkprt	; Unknown msg
+	br	devagn		; Loop back
+;
+; Get boot unit selection
+;
+getunt: movb	r0,seldev	; Store selected device
+untagn:	mov	#btunit,r1	; Prompt for unit #
+	jsr	pc,prtstr
+	jsr	pc,getchr	; Get unit number
+	jsr	pc,prtchr	; Echo selection
+	cmpb	#32,r0		; Check for Ctrl+Z
+	beq	start
+	cmpb  	r0,#60		; Check unit is 0-9
+	blt	untunk
+	cmpb 	r0,#71
+	bgt	untunk
+	br	doboot
+;
+untunk:	jsr	pc,unkprt	; Unknown unit #
+	br	untagn
+;
+doboot:	sub	#60,r0		; Convert from ASCII
+	movb	r0,selunt	; Store selected unit
+	jmp	bootdv		; Boot selected dev/unit
+; --------------------------------------------------
+; Unknown selection message
+; --------------------------------------------------
+unkprt:	mov	#btunk,r1
+	jsr	pc,prtstr
+	rts	pc
+; --------------------------------------------------
+; Print r1 spaces
+;
+; r1 - space count
+; --------------------------------------------------
+prtspc:	movb	#32.,r0
+prtsp2:	jsr	pc,prtchr
+	sub	#1,r1
+	beq	prtsp3
+	br	prtsp2
+prtsp3:	rts	pc
+; --------------------------------------------------
+; Print string to console
+;
+; r1 - string pointer
+; --------------------------------------------------
+prtstr:	movb	(r1)+,r0
+	cmp	r0,#0
+	beq	prtend
+	jsr	pc,prtchr	; Print char
+	br	prtstr
+prtend:	rts	pc
+; --------------------------------------------------
+; Print char to console
+;
+; r0 - char to print
+; --------------------------------------------------
+prtchr:	movb	r0,@#contxb
+prtwt2:	tstb	@#contxs
+	bpl	prtwt2
+	rts	pc
+; --------------------------------------------------
+; Get a char from console
+;
+; r0 - input character
+; --------------------------------------------------
+getchr:	tstb	@#conrxs
+	bpl	getchr
+	movb	@#conrxb,r0
+	rts	pc
+; --------------------------------------------------
+; Init trap locations
+; --------------------------------------------------
+trpstr: .word   2               ; Reserved vector
+        .word   0
+        .word   6               ; Time-out/system error vector
+        .word   0               ; Bus error trap
+        .word   12              ; Illegal and reserved instruction vector
+        .word   0               ; Reserved instruction trap
+        .word   16              ; BPT instruction vector
+        .word   0
+        .word   22              ; IOT instruction vector
+        .word   0
+        .word   26              ; Power fail vector
+        .word   0
+        .word   32              ; EMT instruction vector
+        .word   0
+        .word   36              ; TRAP instruction vector
+        .word   0
+        .blkw   25
+        .word   114
+        .word   0
+        .blkw   50
+        .word   240
+        .word   0
+        .word   244
+        .word   0
+        .word   250
+        .word   0
+trpend  = .
+
+cpytrp: mov     #trpstr,r4
+        mov     #0,r5
+cpylp:  mov     (r4)+,(r5)+
+        cmp     #trpend,r4
+        bne     cpylp
+        rts     pc
+; --------------------------------------------------
+; Boot selected device
+; --------------------------------------------------
+bootdv:	cmp	#61,@#seldev	; DU device
+	beq	bootdu
+	cmp	#62,@#seldev	; DD device
+	beq	bootdd
+	cmp	#63,@#seldev	; MU device
+	bne	noboot
+	jmp	bootmu
+;
+noboot:	jmp	start
+; --------------------------------------------------
+; DU boot loader
+; --------------------------------------------------
+bootdu:	mov	#dubmsg,r1
+	jsr	pc,prtstr
+	mov	@#selunt,r0	; Unit # in r0
+	br	duNr		; Jump to boot code
+;
+ducsr	=172150		; Std MSCP csrbase
+duip	=+0		; IP register
+dusa	=+2		; SA register
+;
+; MSCP init data
+;
+inidta:	.word  100000	; S1: 100000 = no int, ring size 1, no vector
+	.word  002406	; S2: 002404 = ringbase lo addr
+	.word  000000	; S3: 000000 = no purge/poll, ringbase hi addr
+	.word  000001	; S4: 000001 = go bit
+;
+; MSCP command data
+;
+	.byte  011,000	; cmd=011(online) bytecnt_hi=000(0.)
+	.byte  041,002	; cmd=041(read)   bytecnt_hi=002(512.)
+;
+du0n:	sec		; boot std csr, unit zero, no diags
+du0d:	mov    #0,r0	; boot std csr, unit zero, with diags
+duNr:	mov    #ducsr,r1; boot std csr, unit <r0>
+duNb:	mov    pc,r4	; boot csr <r1>, unit <r0>
+;
+dustrt:	mov    r0,(r1)+	; init controller (write IP), bump ptr
+	mov    #4000,r5	; S1 state bitmask
+	mov    #inidta,r3	; point to data at next word
+;
+; init loop
+;
+3$:	tst    (r1)	; error bit set ?
+	bmi    duNr	; yes, fail back to begin to retry
+	bit    (r1),r5	; step bit set ?
+	beq    3$	; not yet, wait loop
+	mov    (r3)+,(r1) ; yes, send next init data
+	asl    r5	; next mask
+	bpl    3$	; S4 done? br if not yet
+;
+; Command loop
+;
+4$:	clr    r2	; set bufptr to 0
+5$:	clr    (r2)+	; clear buffer [0..comm-1]
+	cmp    r2,#comm	; check for end of buffer
+	bne    5$
+;
+; r0 = unit #
+; r1 = a(sa)
+; r2 = a(comm)
+; r3 = a(table)
+; r4 = <unused>
+; r5 = 100000
+; sp = <unused>
+;
+	mov    r2,@#cpkt-4. ; set cmd packet length
+	movb   (r3)+,@#cpkt+8. ; set cmd opcode
+	movb   (r3),@#cpkt+13. ; set cmd bytecnt hi
+	mov    r0,@#cpkt+4.    ; set cmd unit
+;
+	mov    #rpkt,(r2)+     ; rq desc addr
+	mov    r5,(r2)+        ; rq own bit15
+	mov    #cpkt,(r2)+     ; cp desc addr
+	mov    r5,(r2)+        ; rq own bit15
+;
+	mov    -2(r1),r2       ; wake controller (read IP)
+;
+; Wait loop
+;
+6$:	tst    @#comm+2.       ; req own controller ?
+	bmi    6$              ; loop if not done
+
+	tstb   @#rpkt+10.      ; check for error ?
+	bne    duNr            ; Yes, fail back to begin to retry
+
+	tstb   (r3)+           ; check end of table ?
+	beq    4$              ; jmp to bootstrap at zero
+;
+	clr    -(r1)           ; init controller (write IP)
+        clr    pc              ; jump to boootstrap at 0
+	.word  0
+;
+	halt
+	jmp	start
+; --------------------------------------------------
+; DD boot loader
+; --------------------------------------------------
+bootdd:	mov	#ddbmsg,r1
+	jsr	pc,prtstr
+	mov	@#selunt,r0
+	br	ddNr
+;
+ddcsr	=176500				; std TU58 csrbase
+ddrcsr	=+0				; receive control
+ddrbuf	=+2				; receive data
+ddxcsr	=+4				; transmit control
+ddxbuf	=+6				; transmit data
+;
+dd0n:	sec				; boot std csr, unit zero, no diags
+dd0d:	mov	#0,r0			; boot std csr, unit zero, with diags
+ddNr:	mov	#ddcsr,r1		; boot std csr, unit <R0>
+ddNb:	mov	pc,r4			; boot csr <R1>, unit <R0>
+	br	ddinit			; return to (R4)+2 from diags
+;
+ddinit:	clr	r4			; zap old return address
+	inc	ddxcsr(r1)		; set break bit
+	clr	r3			; data 000,000
+	jsr	pc,d10$			; transmit a bunch of zero chars
+	clr	ddxcsr(r1)		; clear break bit
+	tst	ddrbuf(r1)		; read/flush any stale rx char
+	mov	#<010*400>+004,r3	; data 010,004
+	jsr	pc,d12$			; transmit 004 (init) and 010 (boot)
+	mov	r0,r3			; get unit number
+	jsr	pc,d13$			; transmit unit number
+;
+	clr	r3			; clear rx buffer ptr
+d2$:	tstb	(r1)			; wait for rcv'd char available
+	bpl	d2$			; br if not yet
+	movb	ddrbuf(r1),(r3)+	; store the char in buffer, bump ptr
+	cmp	#1000,r3		; hit end of buffer (512. bytes)?
+	bhi	d2$			; br if not yet
+;
+	clr	pc			; jump to bootstrap at zero
+;
+d10$:	jsr	pc,(pc)			; recursive call for char replication
+d11$:	jsr	pc,(pc)			; recursive call for char replication
+d12$:	jsr	pc,(pc)			; recursive call for char replication
+d13$:	tstb	ddxcsr(r1)		; wait for xmit buffer available
+	bpl	d13$			; br if not yet
+	movb	r3,ddxbuf(r1)		; send the char
+	swab	r3			; swap to other char
+	rts	pc			; now recurse or return
+;
+	halt
+; --------------------------------------------------
+; MU boot loader
+;
+; I had to keep some seemingly unnecessary stuff in
+; the code because the routine relies on the values
+; of the instruction words for various conditions.
+; One of these days I'm going to sit down and figure
+; out how to modify the conditions so I can remove
+; unnecessary stuff.
+; --------------------------------------------------
+bootmu:	mov	#mubmsg,r1
+	jsr	pc,prtstr
+	mov	@#selunt,r0
+	br	muNr
+;
+mucsr	=174500				; std TMSCP csrbase
+muip	=+0				; IP register
+musa	=+2				; SA register
+diags   =165564                         ; console diags phase2 entry
+;
+	.ascii	"UM"
+	.word	mulast-.
+mu0n:	sec				; boot std csr, unit zero, no diags
+mu0d:	mov	#0,r0			; boot std csr, unit zero, with diags
+muNr:	mov	#mucsr,r1		; boot std csr, unit <R0>
+muNb:	mov	pc,r4			; boot csr <R1>, unit <R0>
+	nop
+	br	minit			; return to (R4)+2 from diags
+					; then skip over pseudo reboot vector
+;
+	jmp	@#diags
+mrpkt	=100000	; rpkt structure
+mcpkt	=100100 ; cpkt structure
+mcomm	=100200	; comm structure
+; command byte.cnt.hi/opc.hi table
+iniend	=.	
+	.byte	002,041			; #3 bch(002), opc(041)=read
+	.byte	076,041			; #2 bch(076), opc(041)=read
+	.byte	000,011			; #1 bch(000), opc(011)=online
+; init sequence table
+	.word	000001			; S4: go bit
+	.word	000000			; S3: no purge/poll, ringbase hi addr
+	.word	mcomm			; S2: ringbase lo addr
+	.word	100000			; S1: no intr, ring size 1, no vector
+;
+minit:	mov	pc,r3			; point to next word
+	mov	r1,r2			; a(IP) in R1
+	mov	-(r3),(r2)+		; decr data ptr, a(SA) in R2
+	mov	#4000,r5		; S1 state bitmask
+; init loop
+m3$:	tst	(r2)			; error bit set ?
+	bmi	minit			; yes, fall back to begin to retry
+	bit	(r2),r5			; step bit set ?
+	beq	m3$			; not yet, wait loop
+	mov	-(r3),(r2)		; yes, send next init data
+	asl	r5			; next mask
+	bpl	m3$			; s4 done? br if not yet
+; command loop
+m4$:	mov	r5,r2			; set bufptr to rpkt=100000
+m5$:	clr	(r2)+			; clear buffer [0..comm-1]
+	tstb	r2			; check for end of buffer
+	bpl	m5$			; loop if not done
+;
+	incb	@#mcpkt-1.		; set cmd len = 400
+	incb	@#mcpkt-3.		; set cmd VCID = 1
+	movb	-(r3),@#mcpkt+8.		; set cmd opcode from table
+	movb	-(r3),@#mcpkt+13.	; set cmd bytecnt hi from table
+	mov	r0,@#mcpkt+4.		; set cmd unit
+;	
+	mov	r5,(r2)+		; rq desc addr = rpkt
+	mov	r5,(r2)+		; rq own bit15
+	mov	#mcpkt,(r2)+		; cp desc addr = cpkt
+	mov	r5,(r2)			; cp own bit15
+;
+	tst	(r1)			; wake controller (read IP)
+	cmp	-(r2),-(r2)		; r2 -= 4
+; wait loop
+m6$:
+	tstb	@#mrpkt+10.		; check for error ?
+	bne	minit			; yup, fall back to begin to retry
+;
+	tst	(r2)			; rq own controller ?
+	bmi	m6$			; loop if not done
+;
+	cmp	#iniend,r3		; check if end of table ?
+	blo	m4$			; branch if not yet
+;
+	clr	pc			; jmp to bootstrap at zero
+;
+;crc16:	.word	<011426>
+mulast:
+;
+	halt
+; --------------------------------------------------
+;
+; String constants
+;
+; --------------------------------------------------
+clrscn:	.ascii  <33>/[2J/<33>/[H/
+	.byte	0
+banner:	.ascii	'PDP-11/23 BOOT MENU'
+	.byte	0
+verstr:	.ascii	'v0.9'
+	.byte	12,15,0
+bywho:	.ascii	'2025-P. Ekstrom'
+	.byte	12,0
+btmnu:  .byte   15,12,12
+        .ascii  '  1.  Boot from DU Device (8 units).'
+	.byte   12,15
+	.ascii	'  2.  Boot from DD Device (2 units).'
+	.byte   12,15
+	.ascii  '  3.  Boot from MU Device (4 units).'
+	.byte   12,12,15,0
+ctzmsg:	.ascii	'  Press CTRL-Z to restart menu.'
+	.byte	12,12,15,0
+btsdev:	.ascii	'  Select: '
+	.byte	0
+btunit:	.byte	12,15
+	.ascii	'  Unit #: '
+	.byte	0
+btunk:	.byte	12,15
+	.ascii	'Unknown selection.'
+	.byte	12,15,0
+dubmsg:	.byte	12,12,15
+	.ascii	'  Booting from DU Device.'
+	.byte	15,0
+ddbmsg:	.byte	12,12,15
+	.ascii	'  Booting from DD Device.'
+	.byte	15,0
+mubmsg:	.byte	12,12,15
+	.ascii	'  Booting from MU Device.'
+	.byte	15,0
+;
+	.end
