@@ -1,0 +1,37 @@
+#!/bin/sh -x
+
+# get source and object filename
+SRC=$(basename 23-?????.mac .mac)
+CHK=$(basename 23-?????-????.hex .hex)
+
+# determine type of PROM from filename
+case ${SRC} in
+  *F1) ROM="--console";;
+   *9) ROM="--boot";;
+    *) ROM="--unknown";;
+esac
+
+# remove old files
+rm -f ${SRC}.{lst,obj,dmp,hex}
+
+# assemble the source to object, convert to hex
+macro11 ${SRC}.mac -l ${SRC}.lst -o ${SRC}.obj
+obj2hex.pl --verbose ${ROM} ${SRC}.obj > ${SRC}.hex
+rm -f ${SRC}.obj
+
+# now compare what we assembled vs known good bits
+STS=0
+if [ -e ${CHK}.hex ] ; then
+  diffrom.pl --verbose ${CHK}.hex ${SRC}.hex
+  STS=$((${STS}+2+1*$?))
+fi
+if [ -e ${CHK}.bin ] ; then
+  diffrom.pl --verbose ${CHK}.bin ${SRC}.hex
+  STS=$((${STS}+8+4*$?))
+fi
+[ ${STS} -eq 2 -o ${STS} -eq 8 -o ${STS} -eq 10 ] && rm -f ${SRC}.hex
+
+# fix protections
+chmod a+r,go-w,a-x ${SRC}*
+
+# the end
