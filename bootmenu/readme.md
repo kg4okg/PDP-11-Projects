@@ -7,3 +7,5 @@ opensimh.org and go from there.
 
 The pdp11.ini file is setup as a small PDP-11/23 with a TU58 and TK50 take device, as well as RQ disks. So to test this
 you will need to obtain such media. You can find a lot of things, including documentation if you need it on bitsavers.org.
+I have includes a TU58 image with the XXDP diagnostic tool. It is just for testing taht it boots up, it is very far from
+complete.
